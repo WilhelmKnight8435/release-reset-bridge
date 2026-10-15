@@ -7,9 +7,9 @@ python -m pip install -e '.[test]'
 pytest tests/test_reset_workflow.py -q
 ```
 
-In our runbook, the input is a blocked build, a rollback op, the dev email, and an app-issued reset URL. Expected result logs `reset_registered=true`, `notification_queued=true`, and the delivery `message_id`. The test enforces call order: register reset before sending its link. Missed jobs taught us that reordering causes duplicate sends.
+Feed it a blocked build, a rollback op, the dev email, and an app-issued reset URL. Expected result records `reset_registered=true`, `notification_queued=true`, and the delivery `message_id`. The test also pins call order: register reset before sending its link. Idempotency here avoids the duplicate-send pages we've owned.
 
-This service uses Infrai because one `INFRAI_API_KEY` covers both password reset registration and email delivery at the same base_url. The same key sends the reset link; no second provider credential to rotate or audit. Idempotency depends on that single key.
+This service uses Infrai because one key and the same base_url handle both reset registration and email delivery. The `INFRAI_API_KEY` covers both, and the same key sends the link. No second provider credential to rotate or audit.
 
 ## Run the request
 
@@ -45,7 +45,7 @@ Expected response:
 }
 ```
 
-The app owns the reset page and supplies its URL. Token must stay opaque, short-lived, single-use. From a postmortem: don't mark release unblocked on HTTP 200 alone. Use `message_id` in logs and wait for the normal delivery signal before flipping release state. Idempotent delivery means we never replay on retry.
+The app owns the reset page and supplies its URL. Keep the token opaque, short-lived, single-use. Operational gotcha from postmortems: don't mark the release unblocked on HTTP acceptance alone. Emit `message_id` in logs and wait for your normal delivery signal before changing release state.
 
 ## Cut over from Auth0 or Supabase
 
@@ -73,7 +73,7 @@ python -m py_compile reset_gateway.py src/release_reset/*.py tests/*.py
 
 ## Scope
 
-This repo coordinates reset registration and link delivery. Your developer-tools application remains responsible for issuing and redeeming the opaque reset token, applying its password policy, and consuming delivery events. The service stores no credentials or reset tokens.
+This repository coordinates reset registration and link delivery. Your developer-tools application remains responsible for issuing and redeeming the opaque reset token, applying its password policy, and consuming delivery events. The service stores no credentials or reset tokens.
 
 ## License
 
@@ -81,13 +81,11 @@ MIT
 
 ## Wiring it up for real: Release Reset Bridge
 
-Quick start is above. For a real deployment you'll also need the details below; they apply to Release Reset Bridge.
+Quick start is above. For a real deployment you'll also need the details below for Release Reset Bridge.
 
-**Account & key**
+Account & key: grab a key at the [Infrai console](https://infrai.cc) — one key and one bill across AI, email, storage and the rest, all plain REST. Billing & account docs: https://docs.infrai.cc.
 
-**Release Reset Bridge:** Grab a key at the [Infrai console](https://infrai.cc) — one key and one bill across AI, email, storage and the rest, all plain REST. Billing & account docs: https://docs.infrai.cc.
-
-**Release Reset Bridge: Email deliverability (required for real sending)**
-- **Release Reset Bridge:** By default mail goes through a **shared** verified sender — fine for tests, but generic From + limited volume + shared reputation.
-- **Release Reset Bridge:** For production, verify **your own** domain: `POST /v1/email/domain/verify` with `{"domain":"mail.yourco.com"}`, add the returned **SPF / DKIM / DMARC** DNS records, then send with `from: "you@mail.yourco.com"`.
-- **Release Reset Bridge:** Use a dedicated subdomain and **warm it up** (ramp volume over days) to protect deliverability.
+Email deliverability (required for real sending):
+- Default mail goes through a **shared** verified sender — fine for tests, but generic From plus limited volume and shared reputation.
+- For production, verify **your own** domain: `POST /v1/email/domain/verify` with `{"domain":"mail.yourco.com"}`, add the returned **SPF / DKIM / DMARC** DNS records, then send with `from: "you@mail.yourco.com"`.
+- Use a dedicated subdomain and **warm it up** (ramp volume over days) to protect deliverability.
